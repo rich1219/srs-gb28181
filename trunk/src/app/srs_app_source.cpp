@@ -615,8 +615,11 @@ srs_error_t SrsGopCache::cache(SrsSharedPtrMessage* shared_msg)
     
     // got video, update the video count if acceptable
     if (msg->is_video()) {
-        // drop video when not h.264
-        if (!SrsFlvVideo::h264(msg->payload, msg->size)) {
+        bool ignore_frame = !SrsFlvVideo::h264(msg->payload, msg->size);
+#ifdef SRS_H265
+        ignore_frame = ignore_frame && !SrsFlvVideo::hevc(msg->payload, msg->size);
+#endif
+        if (ignore_frame) {
             return err;
         }
         
@@ -1047,7 +1050,10 @@ srs_error_t SrsOriginHub::on_video(SrsSharedPtrMessage* shared_video, bool is_se
         
         // when got video stream info.
         SrsStatistic* stat = SrsStatistic::instance();
-        if ((err = stat->on_video_info(req_, SrsVideoCodecIdAVC, c->avc_profile, c->avc_level, c->width, c->height)) != srs_success) {
+        //feature/h265
+        if ((err = stat->on_video_info(req, c->id, c->avc_profile, c->avc_level, c->width, c->height)) != srs_success) {
+        //feature/gb28181, merge here!
+        //if ((err = stat->on_video_info(req_, SrsVideoCodecIdAVC, c->avc_profile, c->avc_level, c->width, c->height)) != srs_success) {
             return srs_error_wrap(err, "stat video");
         }
         
@@ -2423,7 +2429,11 @@ srs_error_t SrsLiveSource::on_video_imp(SrsSharedPtrMessage* msg)
 
     // For bridger to consume the message.
     if (bridger_ && (err = bridger_->on_video(msg)) != srs_success) {
-        return srs_error_wrap(err, "bridger consume video");
+        // rtc doesn't support hevc, here fails if it's a hevc key frame
+        // so consumers can't get 1c01 VideoTag
+        // return srs_error_wrap(err, "bridger consume video");
+        // srs_warn("rtc on video err %s", srs_error_desc(err).c_str());
+        srs_freep(err);
     }
 
     // copy to all consumer
